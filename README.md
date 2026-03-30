@@ -1,6 +1,6 @@
 # Property Valuation Tool — RAG Chatbot
 
-A local-first RAG system for property valuation intelligence. Designed to solve a real problem in real estate: proprietary valuation data trapped in siloed, heterogeneous PDF documents that standard RAG tools can't parse reliably.
+A RAG system for property valuation intelligence. Designed to solve a real problem in real estate: proprietary valuation data trapped in siloed, heterogeneous PDF documents that standard RAG tools can't parse reliably.
 
 **The problem:** A real estate firm needs an evidence-backed Q&A system over internal valuation documents — appraisals, rent rolls, market comps, condition assessments, and underwriting narratives. Standard RAG pipelines fail because they treat PDFs as flat text, destroying table structure, losing section context, and polluting chunks with header/footer noise.
 
