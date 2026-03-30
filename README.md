@@ -1,6 +1,6 @@
 # Property Valuation Tool — RAG Chatbot
 
-A RAG system for property valuation intelligence. Designed to solve a real problem in real estate: proprietary valuation data trapped in siloed, heterogeneous PDF documents that standard RAG tools can't parse reliably.
+A RAG system for property valuation intelligence. Designed to solve a real problem in real estate: proprietary valuation data trapped in siloed, heterogeneous PDF documents that standard RAG tools can't parse reliably. The generation layer uses a pluggable LLM interface, allowing switching from OpenAI to Vertex AI Gemini is a single environment variable change, with no application code modifications required. The same swap pattern applies to the remaining components: the local embedding model can be replaced with Vertex AI text-embedding-004, ChromaDB with Vertex AI Vector Search for managed billion-scale retrieval, and the BM25 lexical index with Vertex AI Search.
 
 **The problem:** A real estate firm needs an evidence-backed Q&A system over internal valuation documents — appraisals, rent rolls, market comps, condition assessments, and underwriting narratives. Standard RAG pipelines fail because they treat PDFs as flat text, destroying table structure, losing section context, and polluting chunks with header/footer noise.
 
