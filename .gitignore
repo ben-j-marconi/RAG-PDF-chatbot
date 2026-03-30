@@ -1,0 +1,39 @@
+# Environment
+.env
+
+# Generated data (rebuilt by running ingest.py)
+data/chroma_db/
+data/registry/
+data/rag_chatbot.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude internal
+.claude/
+
+# Project context / internal docs
+project_prompt_context/
+
+# Logs
+*.log
+logs/
