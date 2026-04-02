@@ -1,0 +1,25 @@
+# Secrets — never bake into image
+.env
+
+# Runtime data — loaded from GCS at startup
+data/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Git
+.git/
+.gitignore
+
+# Local dev
+.venv/
+venv/
+*.egg-info/
+
+# Streamlit local state
+.streamlit/secrets.toml

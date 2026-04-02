@@ -78,6 +78,7 @@ class LLMProvider(ABC):
                 "section": chunk.section_heading or "—",
                 "rerank_score": chunk.rerank_score,
                 "preview": chunk.text[:120] + ("..." if len(chunk.text) > 120 else ""),
+                "full_text": chunk.text,
             }
             for i, chunk in enumerate(chunks, start=1)
         ]

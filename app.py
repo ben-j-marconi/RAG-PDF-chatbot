@@ -9,17 +9,18 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import base64
 import streamlit as st
 from config import get_config
 from src.chat.engine import ChatEngine
 from src.ingestion.pipeline import IngestionPipeline
 from src.ingestion.registry import DocumentRegistry
-from src.indexing.vector_store import VectorStore
+from src.indexing.vector_store import get_vector_store
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Real Estate Co · Valuation Intelligence",
+    page_title="Valuation Intelligence · Real Estate Co",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -31,317 +32,195 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    /* ── Global reset ─────────────────────────────────────── */
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Hide all Streamlit chrome */
-    #MainMenu        { visibility: hidden; }
-    footer           { visibility: hidden; }
-    header           { visibility: hidden; }
-    .stDeployButton  { display: none; }
-    [data-testid="stToolbar"] { display: none; }
+    /* ── Hide Streamlit chrome (preserve sidebar toggle) ── */
+    #MainMenu                          { visibility: hidden; }
+    footer                             { visibility: hidden; }
+    [data-testid="stHeader"]           { display: none !important; }
+    .stDeployButton                    { display: none !important; }
+    [data-testid="stToolbar"]          { display: none !important; }
+    /* Keep the collapsed-sidebar arrow always reachable */
+    [data-testid="collapsedControl"]   { visibility: visible !important; display: flex !important; }
 
-    /* ── Page background ──────────────────────────────────── */
-    .stApp {
-        background: #f4f6f9;
+    /* ── App background ───────────────────────────────────── */
+    .stApp { background: #F1F4F8; }
+    .main .block-container {
+        padding: 2rem 2.5rem 4rem 2.5rem;
+        max-width: 900px;
     }
 
     /* ── Sidebar ──────────────────────────────────────────── */
     [data-testid="stSidebar"] {
-        background: #0d1b2a !important;
-        border-right: 1px solid #1a2d42;
+        background: #111827 !important;
+        border-right: 1px solid #1F2937 !important;
     }
-    [data-testid="stSidebar"] * {
-        color: #c8d6e5 !important;
-    }
-    [data-testid="stSidebar"] .stMarkdown h3,
-    [data-testid="stSidebar"] .stMarkdown strong {
-        color: #ffffff !important;
-    }
-    [data-testid="stSidebar"] hr {
-        border-color: #1e3048 !important;
-    }
+    [data-testid="stSidebar"] * { color: #9CA3AF !important; }
+    [data-testid="stSidebar"] strong,
+    [data-testid="stSidebar"] b         { color: #F9FAFB !important; }
+    [data-testid="stSidebar"] hr        { border-color: #1F2937 !important; }
+
     [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-        color: #ffffff !important;
-        font-size: 1.4rem !important;
+        color: #F9FAFB !important;
+        font-size: 1.5rem !important;
         font-weight: 700 !important;
     }
     [data-testid="stSidebar"] [data-testid="stMetricLabel"] {
-        color: #7a99b8 !important;
-        font-size: 0.72rem !important;
+        color: #6B7280 !important;
+        font-size: 0.7rem !important;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    [data-testid="stSidebar"] .stSelectbox label,
-    [data-testid="stSidebar"] .stCheckbox label {
-        color: #c8d6e5 !important;
-        font-size: 0.83rem !important;
+        letter-spacing: 0.06em;
     }
     [data-testid="stSidebar"] .stSelectbox > div > div {
-        background: #1a2d42 !important;
-        border: 1px solid #2a4060 !important;
-        color: #e0eaf4 !important;
+        background: #1F2937 !important;
+        border: 1px solid #374151 !important;
+        color: #E5E7EB !important;
+        border-radius: 6px !important;
     }
+    [data-testid="stSidebar"] .stCheckbox label { color: #D1D5DB !important; font-size: 0.82rem !important; }
+    [data-testid="stSidebar"] .stCheckbox span  { color: #D1D5DB !important; }
 
-    /* Sidebar buttons */
     [data-testid="stSidebar"] .stButton > button {
-        background: #1a3a5c !important;
-        color: #e0eaf4 !important;
-        border: 1px solid #2a5080 !important;
+        background: #1F2937 !important;
+        color: #E5E7EB !important;
+        border: 1px solid #374151 !important;
         border-radius: 6px !important;
         font-size: 0.82rem !important;
         font-weight: 500 !important;
-        transition: background 0.15s;
+        transition: all 0.15s;
+        width: 100%;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: #1e4d78 !important;
-        border-color: #3a7abf !important;
-    }
-
-    /* ── Brand header ─────────────────────────────────────── */
-    .rec-header {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 18px 24px 14px 24px;
-        background: #ffffff;
-        border-bottom: 1px solid #e0e6ef;
-        margin: -1rem -1rem 0 -1rem;
-    }
-    .rec-logo {
-        width: 38px; height: 38px;
-        background: #0d1b2a;
-        border-radius: 8px;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 20px; line-height: 1;
-        flex-shrink: 0;
-    }
-    .rec-brand { display: flex; flex-direction: column; }
-    .rec-company {
-        font-size: 0.7rem; font-weight: 600;
-        color: #7a8fa6; letter-spacing: 0.1em;
-        text-transform: uppercase;
-    }
-    .rec-product {
-        font-size: 1.15rem; font-weight: 700;
-        color: #0d1b2a; line-height: 1.2;
-    }
-    .rec-divider {
-        flex: 1;
-    }
-    .rec-badge {
-        font-size: 0.68rem; font-weight: 500;
-        color: #3a7abf;
-        background: #e8f1fb;
-        padding: 3px 10px;
-        border-radius: 20px;
-        border: 1px solid #c0d8f5;
-    }
-
-    /* ── Starter question cards ───────────────────────────── */
-    .starter-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin: 12px 0 20px 0;
-    }
-    .starter-label {
-        font-size: 0.75rem; font-weight: 600;
-        color: #7a8fa6; letter-spacing: 0.08em;
-        text-transform: uppercase; margin-bottom: 4px;
-    }
-
-    /* Override starter buttons to look like cards */
-    div[data-testid="column"] .stButton > button {
-        background: #ffffff !important;
-        border: 1px solid #dde4ef !important;
-        border-radius: 8px !important;
-        color: #1a2d42 !important;
-        font-size: 0.82rem !important;
-        font-weight: 400 !important;
-        text-align: left !important;
-        padding: 10px 14px !important;
-        line-height: 1.4 !important;
-        height: auto !important;
-        white-space: normal !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-        transition: all 0.15s !important;
-    }
-    div[data-testid="column"] .stButton > button:hover {
-        border-color: #3a7abf !important;
-        background: #f0f6ff !important;
-        box-shadow: 0 2px 8px rgba(58,122,191,0.12) !important;
+        background: #2563EB !important;
+        border-color: #2563EB !important;
+        color: #ffffff !important;
     }
 
     /* ── Chat messages ────────────────────────────────────── */
     [data-testid="stChatMessage"] {
         background: transparent !important;
         border: none !important;
-        padding: 4px 0 !important;
+        padding: 2px 0 !important;
     }
 
     /* User bubble */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) > div:last-child {
-        background: #0d1b2a !important;
-        color: #f0f4f8 !important;
-        border-radius: 12px 12px 4px 12px !important;
-        padding: 12px 16px !important;
+        background: #1E3A5F !important;
+        color: #EFF6FF !important;
+        border-radius: 14px 14px 4px 14px !important;
+        padding: 12px 18px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important;
     }
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) p { color: #EFF6FF !important; }
 
     /* Assistant bubble */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) > div:last-child {
-        background: #ffffff !important;
-        border: 1px solid #e0e6ef !important;
-        border-radius: 12px 12px 12px 4px !important;
-        padding: 14px 18px !important;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 14px 14px 14px 4px !important;
+        padding: 16px 20px !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) p,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) li,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) span,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) strong {
+        color: #0F172A !important;
     }
 
     /* Chat input */
-    [data-testid="stChatInput"] {
-        background: #ffffff !important;
-        border: 1px solid #c8d4e4 !important;
+    [data-testid="stChatInput"] textarea {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        border: 1px solid #CBD5E1 !important;
         border-radius: 10px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+        font-size: 0.9rem !important;
     }
     [data-testid="stChatInput"]:focus-within {
-        border-color: #3a7abf !important;
-        box-shadow: 0 0 0 3px rgba(58,122,191,0.12) !important;
-    }
-
-    /* ── Confidence badge ─────────────────────────────────── */
-    .conf-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.73rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        margin: 6px 0 10px 0;
-    }
-    .conf-high   { background: #e6f4ea; color: #1e6832; border: 1px solid #b7dfc2; }
-    .conf-medium { background: #fef9e7; color: #7d5a00; border: 1px solid #f0d88a; }
-    .conf-low    { background: #fdecea; color: #8b1a1a; border: 1px solid #f5b8b8; }
-    .conf-none   { background: #f0f2f5; color: #4a5568; border: 1px solid #d0d6e0; }
-
-    /* ── Citation cards ───────────────────────────────────── */
-    .cite-wrap { margin-top: 4px; }
-    .cite-card {
-        display: flex;
-        gap: 10px;
-        align-items: flex-start;
-        background: #f8fafd;
-        border: 1px solid #dde4ef;
-        border-left: 3px solid #3a7abf;
-        border-radius: 0 6px 6px 0;
-        padding: 8px 12px;
-        margin: 5px 0;
-        font-size: 0.8rem;
-        line-height: 1.5;
-    }
-    .cite-num {
-        font-size: 0.68rem; font-weight: 700;
-        color: #ffffff; background: #3a7abf;
-        border-radius: 4px;
-        padding: 1px 6px;
-        flex-shrink: 0;
-        margin-top: 2px;
-    }
-    .cite-body { flex: 1; }
-    .cite-meta {
-        font-weight: 600; color: #1a2d42;
-        display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-    }
-    .cite-type-table { color: #6d28d9; font-weight: 500; font-size: 0.72rem; }
-    .cite-type-text  { color: #1e6832; font-weight: 500; font-size: 0.72rem; }
-    .cite-score { color: #7a8fa6; font-size: 0.72rem; }
-    .cite-section { color: #7a8fa6; font-style: italic; font-size: 0.75rem; margin-top: 1px; }
-    .cite-preview { color: #4a5568; font-size: 0.77rem; margin-top: 3px; }
-    .cite-footer {
-        font-size: 0.71rem; color: #9aabb8;
-        border-top: 1px solid #e8edf4;
-        padding-top: 6px; margin-top: 6px;
-    }
-
-    /* ── Debug chunk panel ────────────────────────────────── */
-    .chunk-header {
-        font-size: 0.78rem; font-weight: 600;
-        color: #1a2d42; margin: 8px 0 3px 0;
-    }
-    .chunk-card {
-        background: #f0f2f6;
-        border: 1px solid #d4dae6;
-        border-radius: 6px;
-        padding: 8px 12px;
-        font-size: 0.76rem;
-        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-        white-space: pre-wrap;
-        word-break: break-word;
-        color: #2d3748;
-        line-height: 1.5;
-        margin-bottom: 8px;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.15) !important;
     }
 
     /* ── Expanders ────────────────────────────────────────── */
     [data-testid="stExpander"] {
-        border: 1px solid #dde4ef !important;
+        border: 1px solid #E2E8F0 !important;
         border-radius: 8px !important;
-        background: #ffffff !important;
-        margin-top: 6px !important;
+        background: #FFFFFF !important;
+        margin: 4px 0 !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
     }
     [data-testid="stExpander"] summary {
-        font-size: 0.82rem !important;
+        font-size: 0.83rem !important;
         font-weight: 500 !important;
-        color: #1a2d42 !important;
+        color: #1E3A5F !important;
+        padding: 10px 14px !important;
     }
+    [data-testid="stExpander"] summary:hover { background: #F8FAFC !important; }
 
-    /* ── Divider ──────────────────────────────────────────── */
-    hr { border-color: #e0e6ef !important; margin: 12px 0 !important; }
+    /* ── Confidence pill ─────────────────────────────────── */
+    .conf-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 12px; border-radius: 999px;
+        font-size: 0.72rem; font-weight: 600;
+        letter-spacing: 0.03em; margin: 8px 0 12px 0;
+    }
+    .conf-high   { background:#DCFCE7; color:#166534; border:1px solid #86EFAC; }
+    .conf-medium { background:#FEF9C3; color:#854D0E; border:1px solid #FDE047; }
+    .conf-low    { background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; }
+    .conf-none   { background:#F1F5F9; color:#475569; border:1px solid #CBD5E1; }
 
-    /* ── Sidebar brand block ──────────────────────────────── */
-    .sb-brand {
-        padding: 4px 0 12px 0;
-    }
-    .sb-company {
-        font-size: 0.62rem !important; font-weight: 700 !important;
-        color: #5a7fa0 !important; letter-spacing: 0.1em;
-        text-transform: uppercase;
-    }
-    .sb-product {
-        font-size: 1.0rem !important; font-weight: 700 !important;
-        color: #ffffff !important;
-        line-height: 1.25;
-    }
-    .sb-tagline {
-        font-size: 0.71rem !important; color: #5a7fa0 !important;
-        margin-top: 2px;
-    }
-
-    /* ── Follow-up suggestions ────────────────────────────── */
+    /* ── Follow-ups ──────────────────────────────────────── */
     .followup-wrap {
-        margin-top: 10px;
-        padding: 10px 14px;
-        background: #f8fafd;
-        border: 1px solid #dde4ef;
+        margin-top: 12px; padding: 12px 16px;
+        background: #F8FAFC; border: 1px solid #E2E8F0;
         border-radius: 8px;
     }
     .followup-label {
-        font-size: 0.7rem; font-weight: 600;
-        color: #7a8fa6; letter-spacing: 0.07em;
-        text-transform: uppercase; margin-bottom: 5px;
+        font-size: 0.68rem; font-weight: 700; color: #94A3B8;
+        text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
     }
-    .followup-item {
-        font-size: 0.8rem; color: #2d5a8e;
-        padding: 2px 0;
-    }
-    .followup-item::before { content: "→ "; color: #3a7abf; font-weight: 600; }
+    .followup-item { font-size: 0.82rem; color: #1E40AF; padding: 2px 0; }
+    .followup-item::before { content: "→ "; color: #2563EB; font-weight: 600; }
 
-    /* ── Spinner ──────────────────────────────────────────── */
-    .stSpinner > div { border-top-color: #3a7abf !important; }
+    /* ── Starter cards ───────────────────────────────────── */
+    div[data-testid="column"] .stButton > button {
+        background: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        color: #1E3A5F !important;
+        font-size: 0.83rem !important;
+        font-weight: 400 !important;
+        text-align: left !important;
+        padding: 12px 16px !important;
+        line-height: 1.45 !important;
+        height: auto !important;
+        white-space: normal !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+        transition: all 0.15s !important;
+    }
+    div[data-testid="column"] .stButton > button:hover {
+        border-color: #2563EB !important;
+        background: #EFF6FF !important;
+        box-shadow: 0 2px 8px rgba(37,99,235,0.12) !important;
+        color: #1E3A5F !important;
+    }
+
+    /* ── Debug chunk card ────────────────────────────────── */
+    .chunk-card {
+        background: #F8FAFC; border: 1px solid #E2E8F0;
+        border-radius: 6px; padding: 10px 13px;
+        font-size: 0.77rem; font-family: 'SFMono-Regular', Consolas, monospace;
+        white-space: pre-wrap; word-break: break-word;
+        color: #334155; line-height: 1.55; margin-bottom: 8px;
+    }
+
+    /* ── Dividers ────────────────────────────────────────── */
+    hr { border-color: #E2E8F0 !important; margin: 16px 0 !important; }
+
+    /* ── Spinner ─────────────────────────────────────────── */
+    .stSpinner > div { border-top-color: #2563EB !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -349,38 +228,40 @@ st.markdown("""
 # ── Session state ─────────────────────────────────────────────────────────────
 
 def _init_state():
-    defaults = {
-        "chat_history": [],
-        "turns": [],
-        "engine": None,
-        "config": None,
-    }
-    for k, v in defaults.items():
+    for k, v in {"chat_history": [], "turns": [], "engine": None, "config": None}.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 _init_state()
 
 
-# ── Engine loader (cached across reruns) ──────────────────────────────────────
+# ── Cached loaders ────────────────────────────────────────────────────────────
 
 @st.cache_resource(show_spinner="Loading models...")
 def _load_engine():
     cfg = get_config()
     try:
-        engine = ChatEngine(cfg)
-        return engine, cfg, None
+        return ChatEngine(cfg), cfg, None
     except Exception as e:
         return None, cfg, str(e)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _load_pdf_b64(filename: str):
+    pdf_path = os.path.join("data", "pdfs", filename)
+    if not os.path.isfile(pdf_path):
+        return None
+    with open(pdf_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+# ── UI helpers ────────────────────────────────────────────────────────────────
 
 _CONF = {
-    "high":                 ("conf-high",   "●", "High Confidence"),
-    "medium":               ("conf-medium", "◑", "Medium Confidence"),
-    "low":                  ("conf-low",    "○", "Low Confidence"),
-    "insufficient_evidence":("conf-none",   "✕", "Insufficient Evidence"),
+    "high":                  ("conf-high",   "●", "High Confidence"),
+    "medium":                ("conf-medium", "◑", "Medium Confidence"),
+    "low":                   ("conf-low",    "○", "Low Confidence"),
+    "insufficient_evidence": ("conf-none",   "✕", "Insufficient Evidence"),
 }
 
 def _confidence_html(level: str) -> str:
@@ -388,77 +269,94 @@ def _confidence_html(level: str) -> str:
     return f'<span class="conf-pill {cls}">{dot}&ensp;{label}</span>'
 
 
-def _render_citations(citations: list, expanded: bool = False):
+def _render_citations(citations: list):
     if not citations:
         return
-    with st.expander(f"📎  Source Evidence — {len(citations)} chunk(s) retrieved", expanded=expanded):
-        st.markdown('<div class="cite-wrap">', unsafe_allow_html=True)
-        for c in citations:
-            type_cls  = "cite-type-table" if c["chunk_type"] == "table" else "cite-type-text"
-            type_lbl  = "▦ Table" if c["chunk_type"] == "table" else "¶ Text"
-            score_str = f'<span class="cite-score">· {c["rerank_score"]:.3f}</span>' if c.get("rerank_score") else ""
-            section   = f'<div class="cite-section">{c["section"]}</div>' if c["section"] and c["section"] != "—" else ""
-            st.markdown(
-                f'<div class="cite-card">'
-                f'  <div class="cite-num">E{c["evidence_num"]}</div>'
-                f'  <div class="cite-body">'
-                f'    <div class="cite-meta">'
-                f'      <span>{c["filename"]}</span>'
-                f'      <span>· p.{c["page"]}</span>'
-                f'      <span class="{type_cls}">{type_lbl}</span>'
-                f'      {score_str}'
-                f'    </div>'
-                f'    {section}'
-                f'    <div class="cite-preview">{c["preview"]}</div>'
-                f'  </div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+
+    with st.expander(f"📎  Source Evidence — {len(citations)} chunk(s)", expanded=False):
+        tabs = st.tabs([f"E{c['evidence_num']}" for c in citations])
+        for tab, c in zip(tabs, citations):
+            with tab:
+                type_lbl   = "▦ Table" if c["chunk_type"] == "table" else "¶ Narrative"
+                type_color = "#7C3AED" if c["chunk_type"] == "table" else "#059669"
+                score      = f"{c['rerank_score']:.3f}" if c.get("rerank_score") else "—"
+                section    = c.get("section", "—") or "—"
+                full_text  = c.get("full_text", c.get("preview", ""))
+                is_table   = c["chunk_type"] == "table"
+                accent     = "#7C3AED" if is_table else "#2563EB"
+                bg         = "#F5F3FF" if is_table else "#EFF6FF"
+
+                st.markdown(
+                    f'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;'
+                    f'font-size:0.76rem;color:#64748B">'
+                    f'<span><b style="color:#0F172A">File</b>&nbsp;{c["filename"]}</span>'
+                    f'<span><b style="color:#0F172A">Page</b>&nbsp;{c["page"]}</span>'
+                    f'<span style="color:{type_color};font-weight:600">{type_lbl}</span>'
+                    f'<span><b style="color:#0F172A">Score</b>&nbsp;{score}</span>'
+                    f'<span><b style="color:#0F172A">Section</b>&nbsp;{section}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f'<p style="font-size:0.68rem;font-weight:700;color:#94A3B8;'
+                    f'text-transform:uppercase;letter-spacing:0.08em;margin:0 0 5px 0">Excerpt</p>'
+                    f'<div style="background:{bg};border-left:3px solid {accent};'
+                    f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:0.81rem;'
+                    f'line-height:1.7;color:#1E293B;white-space:pre-wrap;'
+                    f'word-break:break-word;margin-bottom:14px">{full_text}</div>',
+                    unsafe_allow_html=True,
+                )
+                pdf_b64 = _load_pdf_b64(c["filename"])
+                if pdf_b64:
+                    page_num = c.get("page", 1)
+                    pdf_src  = f"data:application/pdf;base64,{pdf_b64}#page={page_num}"
+                    st.markdown(
+                        f'<p style="font-size:0.68rem;font-weight:700;color:#94A3B8;'
+                        f'text-transform:uppercase;letter-spacing:0.08em;margin:0 0 5px 0">'
+                        f'Source Document — page {page_num}</p>'
+                        f'<iframe src="{pdf_src}" width="100%" height="500px" '
+                        f'style="border:1px solid #E2E8F0;border-radius:8px;display:block">'
+                        f'</iframe>',
+                        unsafe_allow_html=True,
+                    )
+
         st.markdown(
-            '<div class="cite-footer">Answers are grounded exclusively in the evidence above. '
-            'No external knowledge is used.</div>',
+            '<p style="font-size:0.68rem;color:#94A3B8;margin-top:10px">'
+            'Answers are grounded exclusively in retrieved evidence. '
+            'No external knowledge is used.</p>',
             unsafe_allow_html=True,
         )
-        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _render_debug(chunks: list):
     if not chunks:
         return
-    with st.expander("🔬  Retrieval Trace — reranked context sent to model", expanded=False):
-        st.caption(
-            "Chunks shown in reranked order (highest relevance first). "
-            "This is the exact context the model used to construct its answer."
-        )
+    with st.expander("🔬  Retrieval trace — full reranked context", expanded=False):
+        st.caption("Chunks in reranked order. This is the exact context passed to the model.")
         for i, c in enumerate(chunks, 1):
-            score_str = f"  rerank={c.rerank_score:.3f}" if c.rerank_score is not None else ""
+            score = f"  rerank={c.rerank_score:.3f}" if c.rerank_score is not None else ""
             heading = f"  ·  §{c.section_heading}" if c.section_heading else ""
             st.markdown(
-                f'<div class="chunk-header">[{i}] {c.source_filename} &nbsp;·&nbsp; '
-                f'p.{c.page_num} &nbsp;·&nbsp; {c.chunk_type}{score_str}{heading}</div>',
+                f'<div style="font-size:0.75rem;font-weight:600;color:#1E3A5F;margin:8px 0 3px 0">'
+                f'[{i}] {c.source_filename} · p.{c.page_num} · {c.chunk_type}{score}{heading}</div>',
                 unsafe_allow_html=True,
             )
             st.markdown(f'<div class="chunk-card">{c.text[:600]}</div>', unsafe_allow_html=True)
 
 
-def _render_turn(turn: dict, turn_idx: int):
+def _render_turn(turn: dict):
     with st.chat_message("user"):
         st.markdown(turn["query"])
-
     with st.chat_message("assistant"):
         result = turn["result"]
         st.markdown(result.answer)
         st.markdown(_confidence_html(result.confidence), unsafe_allow_html=True)
-        _render_citations(result.citations, expanded=False)
+        _render_citations(result.citations)
         _render_debug(turn.get("chunks", []))
-
         if result.follow_up_questions:
             fqs = "".join(f'<div class="followup-item">{fq}</div>' for fq in result.follow_up_questions)
             st.markdown(
-                f'<div class="followup-wrap">'
-                f'<div class="followup-label">Suggested follow-ups</div>'
-                f'{fqs}'
-                f'</div>',
+                f'<div class="followup-wrap"><div class="followup-label">Suggested follow-ups</div>{fqs}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -467,10 +365,10 @@ def _render_turn(turn: dict, turn_idx: int):
 
 with st.sidebar:
     st.markdown(
-        '<div class="sb-brand">'
-        '<div class="sb-company">Real Estate Co</div>'
-        '<div class="sb-product">Valuation Intelligence</div>'
-        '<div class="sb-tagline">RAG · Hybrid Retrieval · Grounded Answers</div>'
+        '<div style="padding:8px 0 16px 0">'
+        '<div style="font-size:0.6rem;font-weight:700;color:#4B5563;letter-spacing:0.12em;text-transform:uppercase">Real Estate Co</div>'
+        '<div style="font-size:1.05rem;font-weight:700;color:#F9FAFB;line-height:1.3;margin-top:2px">Valuation Intelligence</div>'
+        '<div style="font-size:0.7rem;color:#4B5563;margin-top:3px">Hybrid RAG · Grounded Answers</div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -481,21 +379,20 @@ with st.sidebar:
     st.session_state.config = config
 
     if load_error:
-        st.error(f"Engine load failed: {load_error}")
+        st.error(f"Engine error: {load_error}")
 
-    # ── System status ─────────────────────────────────────────────────────────
+    # Knowledge base status
     st.markdown("**Knowledge Base**")
-
     try:
-        registry = DocumentRegistry(config.registry_path)
-        summary = registry.summary()
-        vs = VectorStore(config.chroma_dir)
+        registry    = DocumentRegistry(config.registry_path, gcs_bucket=config.gcs_bucket)
+        summary     = registry.summary()
+        vs          = get_vector_store(config)
         chunk_count = vs.count()
-        col1, col2 = st.columns(2)
-        col1.metric("Documents", summary.get("indexed", 0))
-        col2.metric("Chunks", chunk_count)
+        c1, c2 = st.columns(2)
+        c1.metric("Documents", summary.get("indexed", 0))
+        c2.metric("Chunks", chunk_count)
         if summary.get("failed", 0) > 0:
-            st.warning(f"{summary['failed']} document(s) failed ingestion.")
+            st.warning(f"{summary['failed']} doc(s) failed ingestion.")
         if chunk_count == 0:
             st.warning("No chunks indexed. Run ingestion first.")
     except Exception as e:
@@ -503,41 +400,32 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Ingestion controls ────────────────────────────────────────────────────
+    # Ingestion controls
     st.markdown("**Document Ingestion**")
-    force_cb = st.checkbox("Force reindex all documents", value=False)
-
+    force_cb = st.checkbox("Force reindex all", value=False)
     if st.button("↻  Re-ingest Documents", use_container_width=True):
-        progress_lines: list[str] = []
-        log_placeholder = st.empty()
-
-        def _progress(msg: str):
-            progress_lines.append(msg)
-            log_placeholder.text("\n".join(progress_lines[-12:]))
-
+        lines: list = []
+        placeholder = st.empty()
+        def _cb(msg):
+            lines.append(msg)
+            placeholder.text("\n".join(lines[-10:]))
         with st.spinner("Running ingestion pipeline..."):
             try:
-                pipeline = IngestionPipeline(config, progress_callback=_progress)
+                pipeline = IngestionPipeline(config, progress_callback=_cb)
                 res = pipeline.run(force_reindex=force_cb)
-                st.success(
-                    f"Done — {res['processed']} processed, "
-                    f"{res['skipped']} skipped, {res['failed']} failed"
-                )
+                st.success(f"Done — {res['processed']} processed, {res['skipped']} skipped, {res['failed']} failed")
             except Exception as e:
                 st.error(f"Ingestion error: {e}")
-                res = {}
-
         st.cache_resource.clear()
         st.rerun()
 
     st.divider()
 
-    # ── Retrieval filter ──────────────────────────────────────────────────────
+    # Retrieval filter
     st.markdown("**Retrieval Scope**")
     filter_choice = st.selectbox(
-        "Filter by content type:",
+        "Content type",
         ["All documents", "Tables only", "Text only"],
-        index=0,
         label_visibility="collapsed",
     )
     metadata_filter = None
@@ -547,32 +435,36 @@ with st.sidebar:
         metadata_filter = {"chunk_type": "text"}
 
     st.divider()
-
     if st.button("⊘  Clear Conversation", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.turns = []
         st.rerun()
 
 
-# ── Main area ─────────────────────────────────────────────────────────────────
+# ── Main content ──────────────────────────────────────────────────────────────
 
-st.markdown("""
-<div class="rec-header">
-    <div class="rec-logo">🏢</div>
-    <div class="rec-brand">
-        <div class="rec-company">Real Estate Co</div>
-        <div class="rec-product">Property Valuation Intelligence</div>
-    </div>
-    <div class="rec-divider"></div>
-    <div class="rec-badge">Grounded · Cited · Evidence-Backed</div>
-</div>
-""", unsafe_allow_html=True)
+# Header
+st.markdown(
+    '<div style="display:flex;align-items:center;justify-content:space-between;'
+    'padding-bottom:20px;border-bottom:1px solid #E2E8F0;margin-bottom:24px">'
+    '  <div>'
+    '    <div style="font-size:0.65rem;font-weight:700;color:#94A3B8;letter-spacing:0.1em;text-transform:uppercase">Real Estate Co</div>'
+    '    <div style="font-size:1.4rem;font-weight:700;color:#0F172A;line-height:1.2">Property Valuation Intelligence</div>'
+    '  </div>'
+    '  <div style="font-size:0.7rem;font-weight:600;color:#2563EB;background:#EFF6FF;'
+    '  padding:5px 14px;border-radius:999px;border:1px solid #BFDBFE">'
+    '  Grounded · Cited · Evidence-Backed</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
 
-st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-
-# Starter questions (shown only on fresh session)
+# Starter questions
 if not st.session_state.turns:
-    st.markdown('<div class="starter-label">Suggested questions</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-size:0.7rem;font-weight:700;color:#94A3B8;text-transform:uppercase;'
+        'letter-spacing:0.08em;margin-bottom:10px">Suggested questions</p>',
+        unsafe_allow_html=True,
+    )
     _starters = [
         "What is the appraised value and cap rate for Rivergate Apartments?",
         "Which comparable sales support the 5.35% cap rate?",
@@ -584,22 +476,21 @@ if not st.session_state.turns:
     c1, c2 = st.columns(2)
     for i, q in enumerate(_starters):
         col = c1 if i % 2 == 0 else c2
-        if col.button(q, key=f"starter_{i}", use_container_width=True):
+        if col.button(q, key=f"s_{i}", use_container_width=True):
             st.session_state["_pending"] = q
             st.rerun()
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
 st.divider()
 
-# Render conversation history
-for idx, turn in enumerate(st.session_state.turns):
-    _render_turn(turn, idx)
+# Conversation history
+for turn in st.session_state.turns:
+    _render_turn(turn)
 
-# ── Chat input + query handler ────────────────────────────────────────────────
+# ── Input + query handler ─────────────────────────────────────────────────────
 
-pending = st.session_state.pop("_pending", None)
-user_input = st.chat_input("Ask about cap rates, NOI, rent rolls, comps, underwriting...")
+pending     = st.session_state.pop("_pending", None)
+user_input  = st.chat_input("Ask about cap rates, NOI, rent rolls, comps, underwriting metrics…")
 active_query = pending or user_input
 
 if active_query:
@@ -607,19 +498,12 @@ if active_query:
     _config = st.session_state.config
 
     if _engine is None:
-        st.error(
-            "Engine not loaded. Check that OPENAI_API_KEY is set in .env "
-            "and refresh the page."
-        )
+        st.error("Engine not loaded — check your .env file and refresh.")
         st.stop()
 
     try:
-        _vs = VectorStore(_config.chroma_dir)
-        if _vs.count() == 0:
-            st.warning(
-                "No documents indexed yet. Run `python3 ingest.py` in your terminal "
-                "or click **Re-ingest Documents** in the sidebar, then try again."
-            )
+        if get_vector_store(_config).count() == 0:
+            st.warning("No documents indexed. Click **Re-ingest Documents** in the sidebar.")
             st.stop()
     except Exception:
         pass
@@ -628,7 +512,7 @@ if active_query:
         st.markdown(active_query)
 
     with st.chat_message("assistant"):
-        with st.spinner("Retrieving evidence and generating answer..."):
+        with st.spinner("Retrieving evidence and generating answer…"):
             try:
                 result, top_chunks = _engine.ask_with_chunks(
                     query=active_query,
@@ -636,39 +520,22 @@ if active_query:
                     metadata_filter=metadata_filter,
                 )
             except Exception as e:
-                err_msg = str(e)
-                if "api_key" in err_msg.lower() or "authentication" in err_msg.lower():
-                    st.error(
-                        "LLM authentication failed. Check that OPENAI_API_KEY "
-                        "is set correctly in your .env file."
-                    )
-                elif "timeout" in err_msg.lower():
-                    st.error("LLM request timed out. Please try again.")
-                else:
-                    st.error(f"Error: {err_msg}")
+                st.error(f"Error: {e}")
                 st.stop()
 
         st.markdown(result.answer)
         st.markdown(_confidence_html(result.confidence), unsafe_allow_html=True)
-        _render_citations(result.citations, expanded=True)
+        _render_citations(result.citations)
         _render_debug(top_chunks)
 
         if result.follow_up_questions:
             fqs = "".join(f'<div class="followup-item">{fq}</div>' for fq in result.follow_up_questions)
             st.markdown(
-                f'<div class="followup-wrap">'
-                f'<div class="followup-label">Suggested follow-ups</div>'
-                f'{fqs}'
-                f'</div>',
+                f'<div class="followup-wrap"><div class="followup-label">Suggested follow-ups</div>{fqs}</div>',
                 unsafe_allow_html=True,
             )
 
-    st.session_state.chat_history.append({"role": "user", "content": active_query})
+    st.session_state.chat_history.append({"role": "user",      "content": active_query})
     st.session_state.chat_history.append({"role": "assistant", "content": result.answer})
-    st.session_state.turns.append({
-        "query": active_query,
-        "result": result,
-        "chunks": top_chunks,
-    })
-
+    st.session_state.turns.append({"query": active_query, "result": result, "chunks": top_chunks})
     st.rerun()

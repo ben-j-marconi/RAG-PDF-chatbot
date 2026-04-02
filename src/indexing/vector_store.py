@@ -22,6 +22,18 @@ from src.chunking.chunker import Chunk
 COLLECTION_NAME = "property_valuation_chunks"
 
 
+def get_vector_store(config):
+    """
+    Factory: return the configured vector store backend.
+    "firestore" → FirestoreVectorStore (GCP-managed)
+    anything else → VectorStore (local ChromaDB)
+    """
+    if getattr(config, "vector_store_backend", "chroma") == "firestore":
+        from src.indexing.firestore_vector_store import FirestoreVectorStore
+        return FirestoreVectorStore(project=config.gcp_project)
+    return VectorStore(config.chroma_dir)
+
+
 class VectorStore:
     """ChromaDB-backed vector store for property valuation chunks."""
 

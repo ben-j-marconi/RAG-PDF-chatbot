@@ -29,7 +29,7 @@ from src.parsing.extractor import extract_pages
 from src.parsing.reconstructor import reconstruct_document
 from src.chunking.chunker import chunk_document
 from src.indexing.embedder import embed_texts
-from src.indexing.vector_store import VectorStore
+from src.indexing.vector_store import get_vector_store
 from src.indexing.lexical_index import LexicalIndex
 from src.observability.logger import (
     get_logger,
@@ -54,9 +54,9 @@ class IngestionPipeline:
         self.progress = progress_callback or (lambda msg: None)
         self.logger = get_logger("ingestion.pipeline", config)
 
-        self.registry = DocumentRegistry(config.registry_path)
-        self.vector_store = VectorStore(config.chroma_dir)
-        self.lexical_index = LexicalIndex(config.bm25_index_path)
+        self.registry = DocumentRegistry(config.registry_path, gcs_bucket=config.gcs_bucket)
+        self.vector_store = get_vector_store(config)
+        self.lexical_index = LexicalIndex(config.bm25_index_path, gcs_bucket=config.gcs_bucket)
 
     def run(self, force_reindex: bool = False) -> dict:
         """
@@ -68,13 +68,27 @@ class IngestionPipeline:
         Returns:
             Summary dict with counts of processed, skipped, failed documents.
         """
+        source = (
+            f"gs://{self.config.gcs_bucket}/{self.config.gcs_pdf_prefix}"
+            if self.config.gcs_bucket
+            else self.config.pdf_dir
+        )
         self.logger.info("ingestion_start", extra={
             "event": "ingestion_start",
-            "pdf_dir": self.config.pdf_dir,
+            "source": source,
             "force_reindex": force_reindex,
         })
 
-        scan = scan_pdf_directory(self.config.pdf_dir, self.registry)
+        if self.config.gcs_bucket:
+            self.progress(f"Source: gs://{self.config.gcs_bucket}/{self.config.gcs_pdf_prefix}")
+
+        scan = scan_pdf_directory(
+            self.config.pdf_dir,
+            self.registry,
+            gcs_bucket=self.config.gcs_bucket,
+            gcs_pdf_prefix=self.config.gcs_pdf_prefix,
+            gcp_project=self.config.gcp_project,
+        )
 
         # Handle deletions
         for doc_id in scan.deleted:
@@ -116,6 +130,10 @@ class IngestionPipeline:
         self.logger.info("ingestion_complete", extra={
             "event": "ingestion_complete", **results
         })
+
+        # Clean up any GCS temp download directory
+        scan.cleanup()
+
         return results
 
     # ── Per-document pipeline ─────────────────────────────────────────────────

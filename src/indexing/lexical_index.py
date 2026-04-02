@@ -45,10 +45,13 @@ class BM25Index:
 
 
 class LexicalIndex:
-    """BM25-backed lexical search index, persisted as a pickle file."""
+    """BM25-backed lexical search index, persisted as a pickle file with optional GCS sync."""
 
-    def __init__(self, index_path: str):
+    _GCS_OBJECT = "registry/bm25_index.pkl"
+
+    def __init__(self, index_path: str, gcs_bucket: str = ""):
         self.index_path = index_path
+        self.gcs_bucket = gcs_bucket
         os.makedirs(os.path.dirname(index_path), exist_ok=True)
         self._state = BM25Index()
         self._load()
@@ -133,14 +136,35 @@ class LexicalIndex:
     def _save(self) -> None:
         with open(self.index_path, "wb") as f:
             pickle.dump(self._state, f)
+        if self.gcs_bucket:
+            _gcs_upload(self.gcs_bucket, self._GCS_OBJECT, self.index_path)
 
     def _load(self) -> None:
+        if not os.path.exists(self.index_path) and self.gcs_bucket:
+            _gcs_download(self.gcs_bucket, self._GCS_OBJECT, self.index_path)
         if os.path.exists(self.index_path):
             try:
                 with open(self.index_path, "rb") as f:
                     self._state = pickle.load(f)
             except Exception:
                 self._state = BM25Index()
+
+
+def _gcs_upload(bucket_name: str, object_path: str, local_path: str) -> None:
+    try:
+        from google.cloud import storage
+        storage.Client().bucket(bucket_name).blob(object_path).upload_from_filename(local_path)
+    except Exception:
+        pass  # GCS sync is best-effort; local file is always the source of truth
+
+
+def _gcs_download(bucket_name: str, object_path: str, local_path: str) -> None:
+    try:
+        from google.cloud import storage
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        storage.Client().bucket(bucket_name).blob(object_path).download_to_filename(local_path)
+    except Exception:
+        pass  # If GCS download fails, _load() will start with an empty index
 
 
 def _tokenize(text: str) -> list[str]:

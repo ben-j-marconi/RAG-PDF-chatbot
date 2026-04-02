@@ -19,10 +19,13 @@ from typing import Optional
 
 
 class DocumentRegistry:
-    """Persistent registry of ingested documents, backed by a JSON file."""
+    """Persistent registry of ingested documents, backed by a JSON file with optional GCS sync."""
 
-    def __init__(self, registry_path: str):
+    _GCS_OBJECT = "registry/document_registry.json"
+
+    def __init__(self, registry_path: str, gcs_bucket: str = ""):
         self.registry_path = registry_path
+        self.gcs_bucket = gcs_bucket
         os.makedirs(os.path.dirname(registry_path), exist_ok=True)
         self._records: dict[str, dict] = {}
         self._load()
@@ -112,6 +115,8 @@ class DocumentRegistry:
         return None
 
     def _load(self) -> None:
+        if not os.path.exists(self.registry_path) and self.gcs_bucket:
+            _gcs_download(self.gcs_bucket, self._GCS_OBJECT, self.registry_path)
         if os.path.exists(self.registry_path):
             with open(self.registry_path, "r") as f:
                 data = json.load(f)
@@ -120,6 +125,25 @@ class DocumentRegistry:
     def _save(self) -> None:
         with open(self.registry_path, "w") as f:
             json.dump(list(self._records.values()), f, indent=2)
+        if self.gcs_bucket:
+            _gcs_upload(self.gcs_bucket, self._GCS_OBJECT, self.registry_path)
+
+
+def _gcs_upload(bucket_name: str, object_path: str, local_path: str) -> None:
+    try:
+        from google.cloud import storage
+        storage.Client().bucket(bucket_name).blob(object_path).upload_from_filename(local_path)
+    except Exception:
+        pass
+
+
+def _gcs_download(bucket_name: str, object_path: str, local_path: str) -> None:
+    try:
+        from google.cloud import storage
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        storage.Client().bucket(bucket_name).blob(object_path).download_to_filename(local_path)
+    except Exception:
+        pass
 
 
 def _sha256(filepath: str) -> str:

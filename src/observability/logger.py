@@ -4,8 +4,9 @@ observability/logger.py — Structured logging and evaluation hooks.
 Design rationale:
   Observability is what separates a prototype from a trustworthy system.
   Every pipeline stage emits a structured event so we can audit ingestion
-  quality, retrieval relevance, and groundedness — all visible in the logs
-  and surfaced in the UI debug panel.
+  quality, retrieval relevance, and groundedness — all visible in the logs,
+  surfaced in the UI debug panel, and routed to Google Cloud Logging for
+  enterprise-grade audit trails when a GCP project is configured.
 """
 
 import json
@@ -16,8 +17,34 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+# ── Cloud Logging handler (attached once per process) ─────────────────────────
+
+_cloud_handler_attached: set[str] = set()
+
+
+def _attach_cloud_handler(logger: logging.Logger, project: str):
+    """Attach a Google Cloud Logging handler if not already attached."""
+    if logger.name in _cloud_handler_attached:
+        return
+    try:
+        import google.cloud.logging as cloud_logging
+        client = cloud_logging.Client(project=project)
+        handler = cloud_logging.handlers.CloudLoggingHandler(
+            client,
+            name="rag-property-valuation",
+        )
+        handler.setFormatter(_JsonFormatter())
+        logger.addHandler(handler)
+        _cloud_handler_attached.add(logger.name)
+    except Exception:
+        pass  # Cloud Logging is best-effort — never break the app
+
+
 def get_logger(name: str, config=None) -> logging.Logger:
-    """Return a logger that emits JSON-formatted structured events."""
+    """
+    Return a logger that emits structured JSON events.
+    If a GCP project is configured, also routes to Google Cloud Logging.
+    """
     logger = logging.getLogger(name)
 
     if logger.handlers:
@@ -36,12 +63,16 @@ def get_logger(name: str, config=None) -> logging.Logger:
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    # File handler (if configured)
+    # File handler
     if config and config.log_file:
         os.makedirs(os.path.dirname(config.log_file), exist_ok=True)
         fh = logging.FileHandler(config.log_file)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
+
+    # Cloud Logging handler (if GCP project is configured)
+    if config and getattr(config, "gcp_project", ""):
+        _attach_cloud_handler(logger, config.gcp_project)
 
     logger.propagate = False
     return logger
@@ -55,8 +86,6 @@ class _JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        # Attach any extra structured fields the caller passed
-        # These are all standard LogRecord attributes — skip them
         _SKIP = frozenset({
             "name", "msg", "args", "levelname", "levelno", "pathname",
             "filename", "module", "exc_info", "exc_text", "stack_info",
@@ -68,7 +97,6 @@ class _JsonFormatter(logging.Formatter):
             if key.startswith("_") or key in _SKIP:
                 continue
             try:
-                # Only include JSON-serializable values
                 import json as _json
                 _json.dumps(val)
                 payload[key] = val
@@ -82,9 +110,7 @@ class _JsonFormatter(logging.Formatter):
 def check_extraction_quality(doc_obj: Any, logger: logging.Logger) -> dict:
     """
     Basic sanity checks after parsing a document.
-    Returns a quality summary dict and logs it.
-    Note: "We check extraction quality before indexing so bad parse
-    results don't silently pollute the vector store."
+    Logs to Cloud Logging when GCP project is configured.
     """
     pages = getattr(doc_obj, "pages", [])
     total_chars = sum(len(p.raw_text) for p in pages if hasattr(p, "raw_text"))
@@ -106,10 +132,8 @@ def check_extraction_quality(doc_obj: Any, logger: logging.Logger) -> dict:
 
 def check_retrieval_relevance(query: str, chunks: list, logger: logging.Logger) -> dict:
     """
-    Log retrieval results for audit. In production this would compare
-    against a golden eval set. For MVP we log the top chunk scores.
-    Note: "We emit retrieval events so we can spot when the wrong
-    document type is surfacing for a given query class."
+    Log retrieval results for audit. Emits top chunk sources and scores.
+    In production, compare against a golden eval set.
     """
     result = {
         "event": "retrieval_relevance_check",
@@ -131,10 +155,8 @@ def check_retrieval_relevance(query: str, chunks: list, logger: logging.Logger) 
 
 def check_groundedness(answer: str, chunks: list, logger: logging.Logger) -> dict:
     """
-    Lightweight groundedness check: look for numeric values from retrieved
-    chunks in the answer. A grounded answer should echo source numbers.
-    Note: "This isn't a full faithfulness model — it's a heuristic
-    that catches hallucinations of numbers not present in the evidence."
+    Lightweight groundedness heuristic: checks numeric values in the answer
+    against those present in retrieved evidence. Flags unsupported figures.
     """
     import re
     source_numbers = set()

@@ -1,17 +1,23 @@
 # Core PDF parsing
 pdfplumber>=0.11.0
 
-# Embeddings (local, no API key needed)
+# Embeddings + reranker (local models)
 sentence-transformers>=2.2.0
 
-# Vector store (local persistent)
+# Vector store (local fallback)
 chromadb>=0.5.0
 
 # Lexical search
 rank-bm25>=0.2.2
 
-# LLM provider (dev mode)
+# LLM providers
 openai>=1.0.0
+google-genai>=1.0.0
+
+# Google Cloud
+google-cloud-storage>=2.14.0
+google-cloud-firestore>=2.14.0
+google-cloud-logging>=3.9.0
 
 # Web UI
 streamlit>=1.35.0
@@ -19,5 +25,5 @@ streamlit>=1.35.0
 # Config
 python-dotenv>=1.0.0
 
-# Utilities — numpy<2 required for PyTorch 2.2.x compatibility
+# Utilities
 numpy>=1.24.0,<2.0

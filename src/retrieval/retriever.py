@@ -29,7 +29,7 @@ from typing import Optional
 from config import Config
 from src.chunking.chunker import Chunk
 from src.indexing.embedder import embed_query
-from src.indexing.vector_store import VectorStore
+from src.indexing.vector_store import get_vector_store
 from src.indexing.lexical_index import LexicalIndex
 from src.observability.logger import get_logger
 
@@ -44,8 +44,8 @@ class HybridRetriever:
 
     def __init__(self, config: Config):
         self.config = config
-        self.vector_store = VectorStore(config.chroma_dir)
-        self.lexical_index = LexicalIndex(config.bm25_index_path)
+        self.vector_store = get_vector_store(config)
+        self.lexical_index = LexicalIndex(config.bm25_index_path, gcs_bucket=config.gcs_bucket)
         self.logger = get_logger("retrieval.retriever", config)
 
     def retrieve(

@@ -35,7 +35,7 @@ _STRIP_PATTERNS = [
     r"^Page\s+\d+(\s+of\s+\d+)?$",
     r"^\d+\s*$",
 
-    # Google / careers footer artifacts
+    # External URL / third-party footer artifacts
     r"careers\.google\.com",
     r"^Google\s*$",
     r"^Google Cloud\s*$",

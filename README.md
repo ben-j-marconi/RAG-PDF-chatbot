@@ -235,7 +235,7 @@ Linear combination requires normalizing across fundamentally different score dis
 **How does the cross-encoder improve over embedding similarity for ranking?**
 The bi-encoder encodes query and document independently — the relevance score is a dot product of two independent vectors and can't capture query-document interaction. The cross-encoder concatenates query and document into a single input, allowing it to understand that "DSCR" in the query matches "debt service coverage ratio 1.31x" in the document. The tradeoff is speed: bi-encoder is O(1) at query time; cross-encoder is O(n) in the candidate set — for 30 candidates, this is milliseconds.
 
-**How would you move this to production on Google Cloud?**
+**How does production deployment on Google Cloud work?**
 The generation layer is already provider-agnostic — set `LLM_PROVIDER=vertex`. Then swap three components: (1) embedding model from all-MiniLM to Vertex AI text-embedding-004, (2) ChromaDB to Vertex AI Vector Search for managed billion-scale ANN, (3) BM25 to Vertex AI Search or Elasticsearch on GKE. Add IAM to enforce the ACL metadata the registry already tracks, and route logs to Cloud Logging. Application code doesn't change — only config adapters.
 
 **How does the system prevent hallucination?**

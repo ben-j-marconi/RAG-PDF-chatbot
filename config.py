@@ -7,7 +7,7 @@ This makes the Vertex AI swap trivial: change LLM_PROVIDER in .env and restart.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,11 +19,19 @@ class Config:
     llm_provider: str = "openai"          # "openai" | "vertex"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    gemini_api_key: str = ""
     gcp_project: str = ""
     gcp_location: str = "us-central1"
-    vertex_model: str = "gemini-2.0-flash-001"
+    vertex_model: str = "models/gemini-2.5-flash"
 
-    # Paths
+    # Vector store backend
+    vector_store_backend: str = "chroma"   # "chroma" | "firestore"
+
+    # Google Cloud Storage (optional — falls back to local if not set)
+    gcs_bucket: str = ""                  # e.g. "rec-valuation-docs"
+    gcs_pdf_prefix: str = "pdfs/"        # prefix within the bucket
+
+    # Paths (local)
     pdf_dir: str = "data/pdfs"
     registry_path: str = "data/registry/document_registry.json"
     chroma_dir: str = "data/chroma_db"
@@ -48,9 +56,13 @@ def get_config() -> Config:
         llm_provider=os.getenv("LLM_PROVIDER", "openai"),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         gcp_project=os.getenv("GOOGLE_CLOUD_PROJECT", ""),
         gcp_location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
-        vertex_model=os.getenv("VERTEX_MODEL", "gemini-2.0-flash-001"),
+        vertex_model=os.getenv("VERTEX_MODEL", "models/gemini-2.5-flash"),
+        vector_store_backend=os.getenv("VECTOR_STORE_BACKEND", "chroma"),
+        gcs_bucket=os.getenv("GCS_BUCKET", ""),
+        gcs_pdf_prefix=os.getenv("GCS_PDF_PREFIX", "pdfs/"),
         pdf_dir=os.getenv("PDF_DIR", "data/pdfs"),
         registry_path=os.getenv("REGISTRY_PATH", "data/registry/document_registry.json"),
         chroma_dir=os.getenv("CHROMA_DIR", "data/chroma_db"),
